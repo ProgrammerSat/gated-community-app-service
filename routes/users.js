@@ -39,17 +39,27 @@ router.post("/register", async (req, res) => {
 
     // Create the user
     const user = new User({
-      name: req.body.name,
-      email: req.body.email,
-      unitNumber: req.body.unitNumber,
+      name,
+      email,
+      unitNumber,
       password: hashedPassword,
-      phoneNumber: req.body.phoneNumber,
+      phoneNumber,
     });
 
     const newUser = await user.save();
-    res.status(201).json(newUser);
+    return res.status(201).json(newUser);
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    // Handle duplicate key error
+    if (err.code === 11000) {
+      const duplicateField = Object.keys(err.keyPattern)[0];
+      return res.status(409).json({
+        message: `${
+          duplicateField.charAt(0).toUpperCase() + duplicateField.slice(1)
+        } already registered.`,
+      });
+    }
+
+    return res.status(400).json({ message: err.message });
   }
 });
 
