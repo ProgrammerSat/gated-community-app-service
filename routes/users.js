@@ -2,8 +2,9 @@ const express = require("express");
 const router = express.Router();
 const User = require("../models/User"); // Import your User Mongoose model
 const mongoose = require("mongoose");
-const bcrypt = require("bcrypt");
-
+const bcrypt = require("bcryptjs");
+const jwt = require('jsonwebtoken');
+const secretKey = process.env.SECRET_KEY;
 // Routes
 
 // GET all users
@@ -18,15 +19,30 @@ router.get("/getAllUsers", async (req, res) => {
 
 // GET a single user by ID
 router.get("/getUserById/:id", async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+  
+  const token = req.headers['authorization'];
+    
+    if (!token) {
+        return res.status(401).json({ message: 'No token provided' });
     }
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+    
+    try {
+        const decoded = jwt.verify(token, secretKey);
+		try {
+         const user = await User.findById(req.params.id);
+         if (!user) {
+           return res.status(404).json({ message: "User not found" });
+         }else if(decoded.username != user.name){
+			res.status(401).json({ message: 'User name NOT matching' });
+		 }
+         res.json(user);
+       } catch (err) {
+         res.status(500).json({ message: err.message });
+       }
+    } catch (error) {
+        res.status(401).json({ message: 'Invalid token' });
+    }
+  
 });
 
 router.post("/register", async (req, res) => {
@@ -39,27 +55,19 @@ router.post("/register", async (req, res) => {
 
     // Create the user
     const user = new User({
-      name,
-      email,
-      unitNumber,
+      name: req.body.name,
+      email: req.body.email,
+      unitNumber: req.body.unitNumber,
       password: hashedPassword,
-      phoneNumber,
+      phoneNumber: req.body.phoneNumber,
     });
 
     const newUser = await user.save();
-    return res.status(201).json(newUser);
+	// Create a JWT
+    const token = jwt.sign({ username: user.name }, secretKey, { expiresIn: '1h' });
+    res.status(201).json({user: newUser, token: token});
   } catch (err) {
-    // Handle duplicate key error
-    if (err.code === 11000) {
-      const duplicateField = Object.keys(err.keyPattern)[0];
-      return res.status(409).json({
-        message: `${
-          duplicateField.charAt(0).toUpperCase() + duplicateField.slice(1)
-        } already registered.`,
-      });
-    }
-
-    return res.status(400).json({ message: err.message });
+    res.status(400).json({ message: err.message });
   }
 });
 
@@ -81,7 +89,6 @@ router.put("/deleteUserById/:id", async (req, res) => {
 //Login API
 router.post("/login", async (req, res) => {
   const { phoneNumber, password } = req.body;
-
   try {
     // Check if email exists
     const user = await User.findOne({ phoneNumber });
@@ -91,6 +98,9 @@ router.post("/login", async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
       return res.status(401).json({ message: "Invalid credentials" });
+  // Create a JWT
+    const token = jwt.sign({ username: user.name }, secretKey, { expiresIn: '1h' });
+	
     res.status(200).json({
       message: "Login successful",
       user: {
@@ -100,6 +110,7 @@ router.post("/login", async (req, res) => {
         unitNumber: user.unitNumber,
         phoneNumber: user.phoneNumber,
       },
+	  token: token
     });
   } catch (err) {
     console.error(err);
